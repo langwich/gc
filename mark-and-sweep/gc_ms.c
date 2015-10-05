@@ -27,7 +27,7 @@ SOFTWARE.
 #include <string.h>
 #include "gc_ms.h"
 
-#define DEBUG 0
+#define DEBUG 1
 #define MAX_ROOTS       100
 #define MAX_OBJECTS     200
 
@@ -42,18 +42,12 @@ static Object *objects[MAX_OBJECTS];
 static int num_objects;
 static int num_live_objects;
 
-static void gc_mark_live();
+static void gc_mark();
 static void gc_mark_object(Object *p);
 static void gc_sweep();
 static bool gc_in_heap(Object *p);
 static void *gc_alloc_space(int size);
-
-ClassDescriptor String_metaclass = {
-		"String",
-		sizeof (struct String),
-		0, /* fields */
-		NULL
-};
+static bool already_free(Object *p);
 
 void gc_init(int size) {
 	heap_size = size;
@@ -79,14 +73,14 @@ void gc_add_addr_of_root(Object **p)
 void gc_add_objects(Object *p) {
 	objects[num_objects++] = p;
 }
-void gc_ms() {
-	if(DEBUG) printf("gc_mark_sweep\n");
-	gc_mark_live();
 
+void gc_ms() {
+	if(DEBUG) printf("begin_mark_sweep\n");
+	gc_mark();
 	gc_sweep();
 }
 
-static void gc_mark_live() {
+static void gc_mark() {
 	int i;
     num_live_objects = 0;
 	for (i = 0; i < num_roots; i++) {
@@ -102,57 +96,51 @@ static void gc_mark_live() {
 
 static void gc_mark_object(Object *p) {
 	if (!p->header.marked) {
-		if (DEBUG) printf("mark %s@%p\n", p->header.metaclass->name, p);
+		if (DEBUG) printf("mark %s@%p\n", p->name, p);
 		p->header.marked = 1;
         num_live_objects++;
-		int i;
-		for (i = 0; i < p->header.metaclass->num_fields; i++) {
-			int offset_of_ptr_field = p->header.metaclass->field_offsets[i];
-			byte *ptr_to_ptr_filed = ((byte *)p) + offset_of_ptr_field;
-			Object **ptr_to_obj_ptr_field = (Object **) ptr_to_ptr_filed;
-			Object *target_obj = *ptr_to_obj_ptr_field;
-			if (target_obj != NULL) {
-				gc_mark_object(target_obj);
-			}
-		}
 	}
 }
 
-static void gc_sweep(){
+static void gc_sweep() {
 	Object *p ;
 	int i;
 	for (i = 0; i < num_objects; i++) {
 		p = objects[i];
 		if (p->header.marked) {
 			p->header.marked = 0;
-
 		}
 		else {
-			if( p != NULL) {
+			if( p != NULL && !already_free(p)) {
 				Free_Header *q  = (Free_Header*)p;
-				q->size = p->header.metaclass->size;
+				q->size = p->size;
 				q->next = freelist;
 				freelist = q;
+				if (DEBUG) {
+					printf("sweep object@%p\n",freelist);
+				}
 			}
 		}
 	}
 }
 
-Object *gc_alloc(ClassDescriptor *class) {
-	Object *p = gc_alloc_space(class->size);
-	memset(p, 0, class->size);
-	p->header.metaclass = class;
-	gc_add_objects(p);
-	return p;
+Vector *gc_alloc_vector(int size) {
+	Vector *v = gc_alloc_space(sizeof(Vector) + size * sizeof(double)+1);
+	v->header.marked = 0;
+	v->length = size;
+	v->name = "Vector";
+	memset(v->data, 0, size*sizeof(double));
+	gc_add_objects(v);
+	return v;
 }
 
 String *gc_alloc_string(int size) {
 	String *s;
 	s = (String *) gc_alloc_space(sizeof (String) + size + 1);
-	s->header.metaclass = &String_metaclass;
 	s->header.marked = 0;
 	memset(s->str, 0, size);
 	s->length = size;
+	s->name = "String";
 	gc_add_objects(s);
 	return s;
 }
@@ -208,6 +196,18 @@ static bool gc_in_heap(Object *p) {
 	return p >= (Object *) start_of_heap && p <= (Object *) end_of_heap;
 }
 
-void *get_next_free_addr(){
+void *get_next_free_addr() {
 	return freelist;
+}
+
+static bool already_free(Object *p) {
+	Free_Header *q = freelist;
+	while (q != NULL) {
+		if (q == (Free_Header *)p) {
+			return true;
+		}else {
+			q = q->next;
+		}
+	}
+	return false;
 }
