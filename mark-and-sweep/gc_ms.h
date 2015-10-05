@@ -29,24 +29,26 @@ SOFTWARE.
 
 typedef unsigned char byte;
 
-typedef struct ClassDescriptor {
-	char *name;
-	int size;
-	int num_fields;
-	int *field_offsets;
-} ClassDescriptor;
-
 typedef struct GC_Fields {
-	struct ClassDescriptor *metaclass;
 	byte marked;
 } GC_Fields;
 
 typedef struct Object {
-	GC_Fields header;
+    GC_Fields header;
+    int size;
+    char *name;
 } Object;
+
+typedef struct Vector {
+    GC_Fields header;
+    char *name;
+    int length;
+    double data[];
+}Vector;
 
 typedef struct String {
 	GC_Fields header;
+    char *name;
 	int length;
 	char str[];
 }String;
@@ -54,15 +56,14 @@ typedef struct String {
 typedef struct _Free_Header {
 	int size;
 	struct _Free_Header *next;
-} Free_Header;
+}Free_Header;
 
-extern ClassDescriptor String_metaclass;
 
 extern void gc_init(int size);
 extern void gc_done();
 
 extern void gc_ms();
-extern Object *gc_alloc(ClassDescriptor *class);
+extern Vector *gc_alloc_vector(int size);
 extern String *gc_alloc_string(int size);
 extern void gc_add_addr_of_root(Object **p);
 extern void gc_add_objects(Object *p);
