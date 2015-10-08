@@ -23,8 +23,6 @@ SOFTWARE.
 */
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
 #include <string.h>
 #include "gc_ms.h"
 
@@ -32,7 +30,7 @@ SOFTWARE.
   if(EXPECTED != RESULT) { printf("\n%-30s failure on line %d; expecting %d found %d\n", \
 		__func__, __LINE__, EXPECTED, RESULT); }
 
-#define TEST(t) printf("TESTING %s\n", #t); t();
+#define TEST(t) printf("\nTESTING %s\n", #t);t();
 
 
 void test_empty() {

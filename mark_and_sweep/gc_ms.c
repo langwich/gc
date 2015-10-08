@@ -36,7 +36,7 @@ static int num_roots;
 static int heap_size;
 static byte *start_of_heap;
 static byte *end_of_heap;
-Free_Header *freelist;
+Free_Header *freechunk;
 
 static Object *objects[MAX_OBJECTS];
 static int num_objects;
@@ -46,32 +46,20 @@ static void gc_mark();
 static void gc_mark_object(Object *p);
 static void gc_sweep();
 static bool gc_in_heap(Object *p);
+static void *gc_alloc(int size);
 static void *gc_alloc_space(int size);
 static bool already_free(Object *p);
 
 void gc_init(int size) {
 	heap_size = size;
 	start_of_heap = malloc(size);
-	end_of_heap = start_of_heap + size -1;
+	end_of_heap = start_of_heap + heap_size -1;
 	num_live_objects = 0;
 	num_roots = 0;
 	num_objects =0;
-	freelist = (Free_Header *)start_of_heap;
-	freelist->size = size;
-	freelist->next = NULL;
-}
-
-void gc_done() {
-	free(start_of_heap);
-}
-
-void gc_add_addr_of_root(Object **p)
-{
-	_roots[num_roots++] = p;
-}
-
-void gc_add_objects(Object *p) {
-	objects[num_objects++] = p;
+	freechunk = (Free_Header *)start_of_heap;
+	freechunk->size = size;
+	freechunk->next = NULL;
 }
 
 void gc_ms() {
@@ -114,10 +102,10 @@ static void gc_sweep() {
 			if( p != NULL && !already_free(p)) {
 				Free_Header *q  = (Free_Header*)p;
 				q->size = p->size;
-				q->next = freelist;
-				freelist = q;
+				q->next = freechunk;
+				freechunk = q;
 				if (DEBUG) {
-					printf("sweep object@%p\n",freelist);
+					printf("sweep object@%p\n", q);
 				}
 			}
 		}
@@ -125,7 +113,7 @@ static void gc_sweep() {
 }
 
 Vector *gc_alloc_vector(int size) {
-	Vector *v = gc_alloc_space(sizeof(Vector) + size * sizeof(double)+1);
+	Vector *v = gc_alloc(sizeof(Vector) + size * sizeof(double)+1);
 	v->header.marked = 0;
 	v->length = size;
 	v->name = "Vector";
@@ -136,7 +124,7 @@ Vector *gc_alloc_vector(int size) {
 
 String *gc_alloc_string(int size) {
 	String *s;
-	s = (String *) gc_alloc_space(sizeof (String) + size + 1);
+	s = (String *) gc_alloc(sizeof (String) + size + 1);
 	s->header.marked = 0;
 	memset(s->str, 0, size);
 	s->length = size;
@@ -145,25 +133,21 @@ String *gc_alloc_string(int size) {
 	return s;
 }
 
-int gc_num_roots() {
-	return num_roots;
+static void *gc_alloc(int size) {
+	Object *object = gc_alloc_space(size);
+	if(NULL == object) {
+		gc_ms();
+		object = gc_alloc_space(size);
+		if (object == NULL) {
+			if (DEBUG) printf("memory is full");
+			return NULL;
+		}
+	}
+	return object;
 }
-
-int gc_num_live_object() {
-	return num_live_objects;
-}
-
-int gc_num_object() {
-	return num_objects;
-}
-
-void gc_set_num_roots(int roots)
-{
-	num_roots = roots;
-}
-
 static void *gc_alloc_space(int size) {
-	Free_Header *p = freelist;
+
+	Free_Header *p = freechunk;
 	Free_Header *prev = NULL;
 	while (p != NULL && size != p->size && p->size < size + sizeof(Free_Header)) {
 		prev = p;
@@ -182,8 +166,8 @@ static void *gc_alloc_space(int size) {
 		nextchunk = q;
 	}
 	p->size = size;
-	if (p == freelist) {
-		freelist = nextchunk;
+	if (p == freechunk) {
+		freechunk = nextchunk;
 	}
 	else {
 		prev->next = nextchunk;
@@ -197,11 +181,11 @@ static bool gc_in_heap(Object *p) {
 }
 
 void *get_next_free_addr() {
-	return freelist;
+	return freechunk;
 }
 
 static bool already_free(Object *p) {
-	Free_Header *q = freelist;
+	Free_Header *q = freechunk;
 	while (q != NULL) {
 		if (q == (Free_Header *)p) {
 			return true;
@@ -211,3 +195,24 @@ static bool already_free(Object *p) {
 	}
 	return false;
 }
+
+void gc_done() {
+	free(start_of_heap);
+}
+
+void gc_add_addr_of_root(Object **p)
+{
+	_roots[num_roots++] = p;
+}
+
+void gc_add_objects(Object *p) {
+	objects[num_objects++] = p;
+}
+
+int gc_num_roots() { return num_roots; }
+
+int gc_num_live_object() { return num_live_objects; }
+
+int gc_num_object() { return num_objects; }
+
+void gc_set_num_roots(int roots) { num_roots = roots; }
